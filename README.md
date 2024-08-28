@@ -38,3 +38,8 @@ GUI with a color selected
 
 ![image](https://github.com/user-attachments/assets/86c36416-e416-469e-a86c-a7c0f771499d)
 
+<sup>The logic behind the conversion is based on the one used [here][credits].</sup>
+
+<!-- URLS -->
+
+[credits]: https://www.hackitu.de/termcolor256/
