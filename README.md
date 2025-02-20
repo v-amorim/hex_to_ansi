@@ -6,8 +6,8 @@ A simple Hex Color to ANSI Code equivalent color, written in Python using PyQt6.
 
 - Color Picker
 - Closest ANSI code to the selected color
-  - Code in the '2' pattern, the 255 ANSI
-  - Code in the '5' pattern, the RGB ANSI
+  - Code in the '5' pattern, the 255 ANSI
+  - Code in the '2' pattern, the RGB ANSI
 - Closest Dark and Light color to the selected color
 - Closest Grayscale color to the selected color
 - Modifiers for the selected color
