@@ -24,6 +24,20 @@ FOREGROUND_CODE = 38
 BACKGROUND_CODE = 48
 ANSI_255_FORMAT = 5
 RGB_FORMAT = 2
+MODIFIER_CODES = {
+    "is_bold": "1",
+    "is_dim": "2",
+    "is_italic": "3",
+    "is_underline": "4",
+    "is_blinking": "5",
+    "is_inverse": "7",
+    "is_invisible": "8",
+    "is_strikethrough": "9",
+}
+
+
+def get_selected_modifiers(widget):
+    return [code for attr, code in MODIFIER_CODES.items() if getattr(widget, attr).isChecked()]
 
 
 def to_hex(rgb):
@@ -67,19 +81,25 @@ def sqdist(a, b):
     return math.ceil(math.sqrt(((a[0] - b[0]) ** 2) + ((a[1] - b[1]) ** 2) + ((a[2] - b[2]) ** 2)))
 
 
-def to_description(code, rgb_in, rgb_out, color_type):
-    ansi255 = f"[{color_type};{ANSI_255_FORMAT};{code!s}m"
-    ansirgb = f"[{color_type};{RGB_FORMAT};{rgb_out[0]};{rgb_out[1]};{rgb_out[2]}m"
+def to_description(code, rgb_in, rgb_out, color_type, modifiers):
+    ansi_255 = f"[{color_type};{ANSI_255_FORMAT};{code!s}"
+    ansi_rgb = f"[{color_type};{RGB_FORMAT};{rgb_out[0]};{rgb_out[1]};{rgb_out[2]}"
+    if modifiers:
+        mod_str = ";".join(modifiers)
+        ansi_255 += f";{mod_str}"
+        ansi_rgb += f";{mod_str}"
+    ansi_255 += "m"
+    ansi_rgb += "m"
     return (
         f"Code: {code}<br>"
         f"Hex: {to_hex(rgb_out)}<br>"
         f"Delta: ±{sqdist(rgb_out, rgb_in)}<br>"
-        f"ANSI: {ansi255}<br>"
-        f"RGB: {ansirgb}"
+        f"ANSI: {ansi_255}<br>"
+        f"RGB: {ansi_rgb}"
     )
 
 
-def convert(value, color_type):
+def convert(value, color_type, modifiers):
     rgb_in = [int(value[i : i + 2], 16) for i in range(1, 7, 2)]
     gray_code, gray_rgb = convert_gray(rgb_in)
     color_code, color_rgb = convert_rgb(rgb_in, round)
@@ -94,10 +114,10 @@ def convert(value, color_type):
         "out_color_preview": to_hex(color_rgb),
         "out_color_preview_floor": to_hex(color_rgb_floor),
         "out_color_preview_ceil": to_hex(color_rgb_ceil),
-        "gray_desc": to_description(gray_code, rgb_in, gray_rgb, color_type),
-        "color_desc": to_description(color_code, rgb_in, color_rgb, color_type),
-        "floor_desc": to_description(color_code_floor, rgb_in, color_rgb_floor, color_type),
-        "ceil_desc": to_description(color_code_ceil, rgb_in, color_rgb_ceil, color_type),
+        "gray_desc": to_description(gray_code, rgb_in, gray_rgb, color_type, modifiers),
+        "color_desc": to_description(color_code, rgb_in, color_rgb, color_type, modifiers),
+        "floor_desc": to_description(color_code_floor, rgb_in, color_rgb_floor, color_type, modifiers),
+        "ceil_desc": to_description(color_code_ceil, rgb_in, color_rgb_ceil, color_type, modifiers),
     }
 
 
@@ -115,6 +135,10 @@ class ColorConverterApp(QWidget):
         self.color_picker_button.clicked.connect(self.show_color_dialog)
         self.is_foreground.toggled.connect(self.update_color_type)
         self.is_background.toggled.connect(self.update_color_type)
+        self.reset_modifiers.clicked.connect(self.reset_modifier_checkboxes)
+
+        for checkbox in MODIFIER_CODES:
+            getattr(self, checkbox).toggled.connect(self.update_modifiers)
 
         self.color_type = FOREGROUND_CODE
 
@@ -122,6 +146,17 @@ class ColorConverterApp(QWidget):
         self.color_type = FOREGROUND_CODE if self.is_foreground.isChecked() else BACKGROUND_CODE
         if hasattr(self, "current_color") and self.current_color:
             self.update_colors(self.current_color)
+
+    def update_modifiers(self):
+        if hasattr(self, "current_color") and self.current_color:
+            self.update_colors(self.current_color)
+
+    def reset_modifier_checkboxes(self):
+        for checkbox in MODIFIER_CODES:
+            getattr(self, checkbox).setChecked(False)
+
+        self.is_foreground.setChecked(True)
+        self.update_color_type()
 
     def set_color(self, label, hex_color):
         color = QColor(hex_color)
@@ -132,7 +167,8 @@ class ColorConverterApp(QWidget):
         label.setAutoFillBackground(True)
 
     def update_colors(self, hex_color):
-        result = convert(hex_color, self.color_type)
+        modifiers = get_selected_modifiers(self)
+        result = convert(hex_color, self.color_type, modifiers)
 
         self.set_color(self.in_preview, result["in_preview"])
         self.set_color(self.out_gray_preview, result["out_gray_preview"])
@@ -140,7 +176,10 @@ class ColorConverterApp(QWidget):
         self.set_color(self.out_color_preview_floor, result["out_color_preview_floor"])
         self.set_color(self.out_color_preview_ceil, result["out_color_preview_ceil"])
 
-        self.in_preview.setText(f"HEX: {result['in_preview']}\nRGB: {result['in_ansi_rgb']}")
+        modifiers_str = ";".join(modifiers)
+        ansi_code = f"{result['in_ansi_rgb'][:-1]};{modifiers_str}m" if modifiers else result["in_ansi_rgb"]
+
+        self.in_preview.setText(f"HEX: {result['in_preview']}\nRGB: {ansi_code}")
         self.out_gray_preview.setText(result["gray_desc"])
         self.out_color_preview.setText(result["color_desc"])
         self.out_color_preview_floor.setText(result["floor_desc"])
