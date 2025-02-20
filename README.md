@@ -14,7 +14,7 @@ A simple Hex Color to ANSI Code equivalent color, written in Python using PyQt6.
   - Color modifiers:
     - Foreground
     - Background
-  - Text modifiers (WIP):
+  - Text modifiers:
     - Bold
     - Dim
     - Italic
@@ -36,7 +36,11 @@ Color Picker
 
 GUI with a color selected
 
-![image](https://github.com/user-attachments/assets/86c36416-e416-469e-a86c-a7c0f771499d)
+![image](https://github.com/user-attachments/assets/4a72ed36-bf50-4d8c-b3af-be284a857cec)
+
+GUI with a color selected and modifiers
+
+![image](https://github.com/user-attachments/assets/a8ee7908-08a7-427d-abb3-d5da52cc72c7)
 
 <sup>The logic behind the conversion is based on the one used [here][credits].</sup>
 
