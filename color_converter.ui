@@ -266,7 +266,7 @@
          </widget>
         </item>
         <item row="2" column="3">
-         <widget class="QCheckBox" name="is_striketrhough">
+         <widget class="QCheckBox" name="is_strikethrough">
           <property name="text">
            <string>Strikethrough</string>
           </property>
@@ -315,7 +315,7 @@
          </widget>
         </item>
         <item row="3" column="2" colspan="2">
-         <widget class="QPushButton" name="pushButton">
+         <widget class="QPushButton" name="reset_modifiers">
           <property name="text">
            <string>Reset selection</string>
           </property>
