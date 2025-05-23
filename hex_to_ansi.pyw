@@ -8,22 +8,24 @@ from PyQt6.QtGui import QColor, QPalette
 from PyQt6.QtWidgets import QApplication, QColorDialog, QWidget
 
 # Constants
-CURRENT_DIR = Path(__file__).resolve().parent
-UI_COLOR_CONVERTER = CURRENT_DIR / "color_converter.ui"
-BRIGHTNESS_THRESHOLD = 255 / 2
-RGB_SCALE = 95
-RGB_SCALE_ADJUST = 55
-GRAY_BASE_CODE = 232
-GRAY_SCALE_STEP = 10
-GRAY_MAX_INDEX = 23
-RGB_SCALE_FACTOR = 40
-RGB_RED_FACTOR = 36
-RGB_GREEN_FACTOR = 6
-GRAY_THRESHOLD = 8
-FOREGROUND_CODE = 38
-BACKGROUND_CODE = 48
-ANSI_255_FORMAT = 5
-RGB_FORMAT = 2
+UI_CONSTANTS = {
+    "CURRENT_DIR": Path(__file__).resolve().parent,
+    "BRIGHTNESS_THRESHOLD": 255 / 2,
+    "GRAY_BASE_CODE": 232,
+    "GRAY_MAX_INDEX": 23,
+    "GRAY_SCALE_STEP": 10,
+    "GRAY_THRESHOLD": 8,
+    "RGB_SCALE": 95,
+    "RGB_SCALE_ADJUST": 55,
+    "RGB_SCALE_FACTOR": 40,
+    "RGB_RED_FACTOR": 36,
+    "RGB_GREEN_FACTOR": 6,
+    "FOREGROUND_CODE": 38,
+    "BACKGROUND_CODE": 48,
+    "ANSI_256_FORMAT": 5,
+    "RGB_FORMAT": 2,
+}
+
 MODIFIER_CODES = {
     "is_bold": "1",
     "is_dim": "2",
@@ -35,165 +37,212 @@ MODIFIER_CODES = {
     "is_strikethrough": "9",
 }
 
+ColorComponents = tuple[int, int, int]
+ColorConversionResult = tuple[int, ColorComponents]
 
-def get_selected_modifiers(widget):
+
+def get_selected_modifiers(widget: QWidget) -> list[str]:
+    """Return list of modifier codes for checked modifier checkboxes."""
     return [code for attr, code in MODIFIER_CODES.items() if getattr(widget, attr).isChecked()]
 
 
-def to_hex(rgb):
-    total = (rgb[0] << 16) + (rgb[1] << 8) + rgb[2]
-    hex_str = hex(total)[2:]
-    return f"#{hex_str.zfill(6)}"
+def rgb_to_hex(rgb: ColorComponents) -> str:
+    """Convert RGB tuple to hexadecimal color string."""
+    return f"#{rgb[0]:02x}{rgb[1]:02x}{rgb[2]:02x}".upper()
 
 
-def lookup_rgb(value, round_mode):
-    index = (
-        round_mode(value / RGB_SCALE)
-        if value < RGB_SCALE
-        else round_mode((value - RGB_SCALE_ADJUST) / RGB_SCALE_FACTOR)
+def calculate_color_distance(color1: ColorComponents, color2: ColorComponents) -> int:
+    """Calculate Euclidean distance between two RGB colors."""
+    return math.ceil(math.sqrt(sum((c1 - c2) ** 2 for c1, c2 in zip(color1, color2, strict=True))))
+
+
+def find_closest_rgb_index(value: int, rounding_func) -> tuple[int, int]:
+    """Find closest RGB index and corresponding value for a color component."""
+    if value < UI_CONSTANTS["RGB_SCALE"]:
+        index = rounding_func(value / UI_CONSTANTS["RGB_SCALE"])
+    else:
+        index = rounding_func((value - UI_CONSTANTS["RGB_SCALE_ADJUST"]) / UI_CONSTANTS["RGB_SCALE_FACTOR"])
+
+    index = max(0, index)
+    output = index * UI_CONSTANTS["RGB_SCALE_FACTOR"] + UI_CONSTANTS["RGB_SCALE_ADJUST"]
+    return index, output
+
+
+def find_closest_gray_index(value: int) -> tuple[int, int]:
+    """Find closest gray index and corresponding value for a brightness level."""
+    if value < UI_CONSTANTS["GRAY_THRESHOLD"]:
+        return UI_CONSTANTS["GRAY_BASE_CODE"], 0
+
+    index = min(
+        round((value - UI_CONSTANTS["GRAY_THRESHOLD"]) / UI_CONSTANTS["GRAY_SCALE_STEP"]),
+        UI_CONSTANTS["GRAY_MAX_INDEX"],
     )
-    out = 0 if index <= 0 else index * RGB_SCALE_FACTOR + RGB_SCALE_ADJUST
-    return index, out
+    code = UI_CONSTANTS["GRAY_BASE_CODE"] + index
+    output = index * UI_CONSTANTS["GRAY_SCALE_STEP"] + UI_CONSTANTS["GRAY_THRESHOLD"]
+    return code, output
 
 
-def lookup_gray(value):
-    index = 0 if value < GRAY_THRESHOLD else min(round((value - GRAY_THRESHOLD) / GRAY_SCALE_STEP), GRAY_MAX_INDEX)
-    code = GRAY_BASE_CODE + index
-    out = index * GRAY_SCALE_STEP + GRAY_THRESHOLD
-    return code, out
+def convert_to_rgb_color(rgb: ColorComponents, rounding_func) -> ColorConversionResult:
+    """Convert RGB color to closest ANSI 256-color code using specified rounding method."""
+    r_idx, r_val = find_closest_rgb_index(rgb[0], rounding_func)
+    g_idx, g_val = find_closest_rgb_index(rgb[1], rounding_func)
+    b_idx, b_val = find_closest_rgb_index(rgb[2], rounding_func)
+
+    code = UI_CONSTANTS["RGB_RED_FACTOR"] * r_idx + UI_CONSTANTS["RGB_GREEN_FACTOR"] * g_idx + b_idx + 16
+    return code, (r_val, g_val, b_val)
 
 
-def convert_rgb(rgb_in, round_mode):
-    r_index, r_out = lookup_rgb(rgb_in[0], round_mode)
-    g_index, g_out = lookup_rgb(rgb_in[1], round_mode)
-    b_index, b_out = lookup_rgb(rgb_in[2], round_mode)
-    code = (RGB_RED_FACTOR * r_index) + (RGB_GREEN_FACTOR * g_index) + b_index + 16
-    return code, [r_out, g_out, b_out]
+def convert_to_gray_color(rgb: ColorComponents) -> ColorConversionResult:
+    """Convert RGB color to closest ANSI gray-scale code."""
+    brightness = round(0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2])
+    code, gray_value = find_closest_gray_index(brightness)
+    return code, (gray_value, gray_value, gray_value)
 
 
-def convert_gray(rgb_in):
-    avg = round((rgb_in[0] * 0.299) + (rgb_in[1] * 0.587) + (rgb_in[2] * 0.114))
-    code, out = lookup_gray(avg)
-    return code, [out, out, out]
+def create_ansi_escape_code(color_type: int, color_code: int, modifiers: list[str], rgb: ColorComponents = None) -> str:
+    """Create ANSI escape code string for given parameters."""
+    parts = [str(color_type)]
 
+    if rgb:
+        parts.extend([str(UI_CONSTANTS["RGB_FORMAT"]), *map(str, rgb)])
+    else:
+        parts.extend([str(UI_CONSTANTS["ANSI_256_FORMAT"]), str(color_code)])
 
-def sqdist(a, b):
-    return math.ceil(math.sqrt(((a[0] - b[0]) ** 2) + ((a[1] - b[1]) ** 2) + ((a[2] - b[2]) ** 2)))
-
-
-def to_description(code, rgb_in, rgb_out, color_type, modifiers):
-    ansi_255 = f"[{color_type};{ANSI_255_FORMAT};{code!s}"
-    ansi_rgb = f"[{color_type};{RGB_FORMAT};{rgb_out[0]};{rgb_out[1]};{rgb_out[2]}"
     if modifiers:
-        mod_str = ";".join(modifiers)
-        ansi_255 += f";{mod_str}"
-        ansi_rgb += f";{mod_str}"
-    ansi_255 += "m"
-    ansi_rgb += "m"
+        parts.extend(modifiers)
+
+    return f"{';'.join(parts)}m"
+
+
+def format_color_description(
+    ansi_code: int, original_rgb: ColorComponents, converted_rgb: ColorComponents, color_type: int, modifiers: list[str]
+) -> str:
+    """Create HTML formatted description for color conversion results."""
+    ansi_256 = create_ansi_escape_code(color_type, ansi_code, modifiers)
+    ansi_rgb = create_ansi_escape_code(color_type, 0, modifiers, rgb=converted_rgb)
+
     return (
-        f"Code: {code}<br>"
-        f"Hex: {to_hex(rgb_out)}<br>"
-        f"Delta: ±{sqdist(rgb_out, rgb_in)}<br>"
-        f"ANSI: {ansi_255}<br>"
+        f"Code: {ansi_code}<br>"
+        f"Hex: {rgb_to_hex(converted_rgb)}<br>"
+        f"Delta: ±{calculate_color_distance(original_rgb, converted_rgb)}<br>"
+        f"256: {ansi_256}<br>"
         f"RGB: {ansi_rgb}"
     )
 
 
-def convert(value, color_type, modifiers):
-    rgb_in = [int(value[i : i + 2], 16) for i in range(1, 7, 2)]
-    gray_code, gray_rgb = convert_gray(rgb_in)
-    color_code, color_rgb = convert_rgb(rgb_in, round)
-    color_code_floor, color_rgb_floor = convert_rgb(rgb_in, math.floor)
-    color_code_ceil, color_rgb_ceil = convert_rgb(rgb_in, math.ceil)
-    ansi_rgb = f"[{color_type};{RGB_FORMAT};{rgb_in[0]};{rgb_in[1]};{rgb_in[2]}m"
+def convert_hex_color(hex_color: str, color_type: int, modifiers: list[str]) -> dict:
+    """Handle all color transformations for the main conversion function."""
+    original_rgb = tuple(int(hex_color[i : i + 2], 16) for i in (1, 3, 5))
+    input_ansi_rgb = create_ansi_escape_code(color_type, 0, modifiers, rgb=original_rgb)
+
+    # Gray scale conversion
+    gray_code, gray_rgb = convert_to_gray_color(original_rgb)
+
+    # Color cube conversions
+    color_code, color_rgb = convert_to_rgb_color(original_rgb, round)
+    floor_code, floor_rgb = convert_to_rgb_color(original_rgb, math.floor)
+    ceil_code, ceil_rgb = convert_to_rgb_color(original_rgb, math.ceil)
 
     return {
-        "in_preview": f"{value}",
-        "in_ansi_rgb": ansi_rgb,
-        "out_gray_preview": to_hex(gray_rgb),
-        "out_color_preview": to_hex(color_rgb),
-        "out_color_preview_floor": to_hex(color_rgb_floor),
-        "out_color_preview_ceil": to_hex(color_rgb_ceil),
-        "gray_desc": to_description(gray_code, rgb_in, gray_rgb, color_type, modifiers),
-        "color_desc": to_description(color_code, rgb_in, color_rgb, color_type, modifiers),
-        "floor_desc": to_description(color_code_floor, rgb_in, color_rgb_floor, color_type, modifiers),
-        "ceil_desc": to_description(color_code_ceil, rgb_in, color_rgb_ceil, color_type, modifiers),
+        "input_hex": hex_color,
+        "gray_hex": rgb_to_hex(gray_rgb),
+        "color_hex": rgb_to_hex(color_rgb),
+        "floor_hex": rgb_to_hex(floor_rgb),
+        "ceil_hex": rgb_to_hex(ceil_rgb),
+        "input_description": f"HEX: {hex_color}\nRGB: {input_ansi_rgb}",
+        "gray_description": format_color_description(gray_code, original_rgb, gray_rgb, color_type, modifiers),
+        "color_description": format_color_description(color_code, original_rgb, color_rgb, color_type, modifiers),
+        "floor_description": format_color_description(floor_code, original_rgb, floor_rgb, color_type, modifiers),
+        "ceil_description": format_color_description(ceil_code, original_rgb, ceil_rgb, color_type, modifiers),
     }
 
 
-def is_bright(hex_color):
-    rgb = [int(hex_color[i : i + 2], 16) for i in range(1, 7, 2)]
-    brightness = 0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2]
-    return brightness > BRIGHTNESS_THRESHOLD
+def is_color_bright(hex_color: str) -> bool:
+    """Determine if a color is considered bright based on its luminance."""
+    rgb = tuple(int(hex_color[i : i + 2], 16) for i in (1, 3, 5))
+    luminance = 0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2]
+    return luminance > UI_CONSTANTS["BRIGHTNESS_THRESHOLD"]
 
 
 class ColorConverterApp(QWidget):
     def __init__(self):
         super().__init__()
-        uic.loadUi(UI_COLOR_CONVERTER, self)
+        uic.loadUi(UI_CONSTANTS["CURRENT_DIR"] / "color_converter.ui", self)
 
+        self.current_color = ""
+        self.color_type = UI_CONSTANTS["FOREGROUND_CODE"]
+
+        # Connect UI signals
         self.color_picker_button.clicked.connect(self.show_color_dialog)
         self.is_foreground.toggled.connect(self.update_color_type)
-        self.is_background.toggled.connect(self.update_color_type)
-        self.reset_modifiers.clicked.connect(self.reset_modifier_checkboxes)
+        self.reset_modifiers.clicked.connect(self.reset_ui_state)
 
-        for checkbox in MODIFIER_CODES:
-            getattr(self, checkbox).toggled.connect(self.update_modifiers)
+        for modifier in MODIFIER_CODES:
+            getattr(self, modifier).toggled.connect(self.handle_modifier_change)
 
-        self.color_type = FOREGROUND_CODE
+    @property
+    def active_modifiers(self) -> list[str]:
+        return get_selected_modifiers(self)
 
-    def update_color_type(self):
-        self.color_type = FOREGROUND_CODE if self.is_foreground.isChecked() else BACKGROUND_CODE
-        if hasattr(self, "current_color") and self.current_color:
-            self.update_colors(self.current_color)
+    def update_color_type(self) -> None:
+        """Update color type based on foreground/background selection."""
+        self.color_type = (
+            UI_CONSTANTS["FOREGROUND_CODE"] if self.is_foreground.isChecked() else UI_CONSTANTS["BACKGROUND_CODE"]
+        )
+        if self.current_color:
+            self.update_ui_with_color(self.current_color)
 
-    def update_modifiers(self):
-        if hasattr(self, "current_color") and self.current_color:
-            self.update_colors(self.current_color)
+    def handle_modifier_change(self) -> None:
+        """Handle changes in modifier checkboxes."""
+        if self.current_color:
+            self.update_ui_with_color(self.current_color)
 
-    def reset_modifier_checkboxes(self):
-        for checkbox in MODIFIER_CODES:
-            getattr(self, checkbox).setChecked(False)
-
+    def reset_ui_state(self) -> None:
+        """Reset all modifiers to default state."""
+        for modifier in MODIFIER_CODES:
+            getattr(self, modifier).setChecked(False)
         self.is_foreground.setChecked(True)
         self.update_color_type()
 
-    def set_color(self, label, hex_color):
-        color = QColor(hex_color)
+    def update_label_appearance(self, label: QWidget, hex_color: str) -> None:
+        """Update label background and text color based on provided hex color."""
         palette = label.palette()
-        palette.setColor(QPalette.ColorRole.Window, color)
-        palette.setColor(QPalette.ColorRole.WindowText, QColor("black") if is_bright(hex_color) else QColor("white"))
+        bg_color = QColor(hex_color)
+        text_color = QColor("black" if is_color_bright(hex_color) else "white")
+
+        palette.setColor(QPalette.ColorRole.Window, bg_color)
+        palette.setColor(QPalette.ColorRole.WindowText, text_color)
         label.setPalette(palette)
         label.setAutoFillBackground(True)
 
-    def update_colors(self, hex_color):
-        modifiers = get_selected_modifiers(self)
-        result = convert(hex_color, self.color_type, modifiers)
+    def update_ui_with_color(self, hex_color: str) -> None:
+        """Update all UI elements with new color information."""
+        conversion_data = convert_hex_color(hex_color, self.color_type, self.active_modifiers)
 
-        self.set_color(self.in_preview, result["in_preview"])
-        self.set_color(self.out_gray_preview, result["out_gray_preview"])
-        self.set_color(self.out_color_preview, result["out_color_preview"])
-        self.set_color(self.out_color_preview_floor, result["out_color_preview_floor"])
-        self.set_color(self.out_color_preview_ceil, result["out_color_preview_ceil"])
+        # Update color previews
+        self.update_label_appearance(self.in_preview, conversion_data["input_hex"])
+        self.update_label_appearance(self.out_gray_preview, conversion_data["gray_hex"])
+        self.update_label_appearance(self.out_color_preview, conversion_data["color_hex"])
+        self.update_label_appearance(self.out_color_preview_floor, conversion_data["floor_hex"])
+        self.update_label_appearance(self.out_color_preview_ceil, conversion_data["ceil_hex"])
 
-        modifiers_str = ";".join(modifiers)
-        ansi_code = f"{result['in_ansi_rgb'][:-1]};{modifiers_str}m" if modifiers else result["in_ansi_rgb"]
+        # Update text content
+        self.in_preview.setText(conversion_data["input_description"])
+        self.out_gray_preview.setText(conversion_data["gray_description"])
+        self.out_color_preview.setText(conversion_data["color_description"])
+        self.out_color_preview_floor.setText(conversion_data["floor_description"])
+        self.out_color_preview_ceil.setText(conversion_data["ceil_description"])
 
-        self.in_preview.setText(f"HEX: {result['in_preview']}\nRGB: {ansi_code}")
-        self.out_gray_preview.setText(result["gray_desc"])
-        self.out_color_preview.setText(result["color_desc"])
-        self.out_color_preview_floor.setText(result["floor_desc"])
-        self.out_color_preview_ceil.setText(result["ceil_desc"])
-
-    def show_color_dialog(self):
+    def show_color_dialog(self) -> None:
+        """Show color picker dialog and update UI with selected color."""
         color = QColorDialog.getColor()
         if color.isValid():
             self.current_color = color.name()
-            self.update_colors(self.current_color)
+            self.update_ui_with_color(self.current_color)
 
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    ex = ColorConverterApp()
-    ex.show()
+    window = ColorConverterApp()
+    window.show()
     sys.exit(app.exec())

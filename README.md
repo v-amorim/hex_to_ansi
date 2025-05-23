@@ -2,6 +2,10 @@
 
 A simple Hex Color to ANSI Code equivalent color, written in Python using PyQt6.
 
+<p align="center">
+  <img alt="demo" src="assets/demo.gif" width="100%"/>
+</p>
+
 ### Features
 
 - Color Picker
