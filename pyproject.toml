@@ -1,0 +1,9 @@
+[project]
+name = "hex-to-ansi"
+version = "0.1.0"
+description = "Convert Hex color to ANSI 256 or ANSI RGB colors"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "pyqt6>=6.9.1",
+]
